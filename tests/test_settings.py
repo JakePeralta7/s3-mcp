@@ -43,6 +43,14 @@ class TestLoadSettings:
         s = load_settings(base_env(S3_ENDPOINT_URL="   "))
         assert s.endpoint_url is None
 
+    def test_ca_bundle_from_ssl_cert_file(self):
+        s = load_settings(base_env(SSL_CERT_FILE="/etc/ssl/certs/ca-bundle.pem"))
+        assert s.ca_bundle == "/etc/ssl/certs/ca-bundle.pem"
+
+    def test_blank_ssl_cert_file_is_none(self):
+        s = load_settings(base_env(SSL_CERT_FILE="   "))
+        assert s.ca_bundle is None
+
     @pytest.mark.parametrize("value", ["true", "TRUE", "1", "Yes", "on"])
     def test_bool_true_variants(self, value):
         assert load_settings(base_env(S3_PATH_STYLE=value)).path_style is True

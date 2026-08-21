@@ -53,3 +53,8 @@ class TestCreateClient:
         fake = patch_boto3(monkeypatch)
         create_client(make_settings(path_style=False))
         assert fake.call_args.kwargs["config"].s3["addressing_style"] == "auto"
+
+    def test_ca_bundle_path_used_as_verify(self, monkeypatch):
+        fake = patch_boto3(monkeypatch)
+        create_client(make_settings(ca_bundle="/etc/ssl/certs/ca-bundle.pem"))
+        assert fake.call_args.kwargs["verify"] == "/etc/ssl/certs/ca-bundle.pem"

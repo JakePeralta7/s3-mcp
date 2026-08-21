@@ -8,6 +8,9 @@
 - Run server: `uv run python -m s3_mcp` (fails fast with `RuntimeError` unless
   `AWS_ACCESS_KEY_ID`/`AWS_SECRET_ACCESS_KEY` are set)
 - There is no lint/typecheck config; pytest is the only automated gate.
+- Committed `pyrightconfig.json` points Pyright at `.venv`: until `uv sync`
+  has run, editors show false "Import could not be resolved" errors for
+  boto3/mcp/pytest — install deps before trusting diagnostics.
 - Dev shell is Windows PowerShell: inline `python -c "..."` breaks on quoting —
   write a temp `.py` file instead.
 

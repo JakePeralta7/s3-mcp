@@ -36,6 +36,7 @@ class Settings:
     secret_access_key: str
     path_style: bool
     tls_insecure: bool
+    ca_bundle: str | None
 
 
 def env_bool(name: str, env: Mapping[str, str], default: bool) -> bool:
@@ -60,6 +61,7 @@ def load_settings(env: Mapping[str, str] | None = None) -> Settings:
         raise RuntimeError("AWS_SECRET_ACCESS_KEY is required")
     endpoint_url = env.get("S3_ENDPOINT_URL", "").strip() or None
     region = env.get("AWS_REGION", "").strip() or "us-east-1"
+    ca_bundle = env.get("SSL_CERT_FILE", "").strip() or None
     return Settings(
         endpoint_url=endpoint_url,
         region=region,
@@ -67,6 +69,7 @@ def load_settings(env: Mapping[str, str] | None = None) -> Settings:
         secret_access_key=secret_access_key,
         path_style=env_bool("S3_PATH_STYLE", env, True),
         tls_insecure=env_bool("S3_TLS_INSECURE", env, False),
+        ca_bundle=ca_bundle,
     )
 
 
@@ -78,13 +81,15 @@ def create_client(settings: Settings) -> Any:
         connect_timeout=10,
         read_timeout=120,
     )
+    # Determine verify parameter: custom CA bundle path, or boolean based on tls_insecure
+    verify: str | bool = settings.ca_bundle or (not settings.tls_insecure)
     return boto3.client(
         "s3",
         endpoint_url=settings.endpoint_url,
         aws_access_key_id=settings.access_key_id,
         aws_secret_access_key=settings.secret_access_key,
         config=config,
-        verify=not settings.tls_insecure,
+        verify=verify,
     )
 
 

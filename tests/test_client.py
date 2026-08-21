@@ -13,6 +13,7 @@ def make_settings(**overrides: Any) -> Settings:
         secret_access_key="secret",
         path_style=True,
         tls_insecure=False,
+        ca_bundle=None,
     )
     params.update(overrides)
     return Settings(**params)

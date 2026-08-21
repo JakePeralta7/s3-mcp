@@ -22,6 +22,7 @@ class TestLoadSettings:
             secret_access_key="secret",
             path_style=True,
             tls_insecure=False,
+            ca_bundle=None,
         )
 
     def test_full_custom(self):

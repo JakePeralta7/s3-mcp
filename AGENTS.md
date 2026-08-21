@@ -58,7 +58,7 @@
   stage — renaming/removing it breaks both builds.
 - `uv.lock` is committed; re-run `uv sync` after touching dependencies so it
   updates.
-- `.github/workflows/release.yml`: push to main or a `v*` tag runs pytest,
-  then pushes to `ghcr.io/${{ github.repository }}`. Docker version tags come
-  from git tags (metadata-action), so release = push tag `vX.Y.Z`; bumping
-  `version` in pyproject.toml alone does nothing.
+- `.github/workflows/release.yml`: every push to main runs pytest, then builds
+  and pushes `ghcr.io/<lowercased repo>:<pyproject version>` plus `:latest`.
+  Releasing = bump `version` in pyproject.toml and push to main. Git tags are
+  NOT used for releases and trigger nothing.

@@ -139,6 +139,13 @@ docker build -t s3-mcp:dev .
 
 Entrypoint: `python -m s3_mcp` (stdio transport only).
 
+## Releasing
+
+Every push to `main` runs tests, then publishes
+`ghcr.io/<owner>/<repo>:<version>` + `:latest`, where `<version>` is read from
+`version` in `pyproject.toml`. To release, bump the version and merge to main.
+Git tags are not used.
+
 ## License
 
 [MIT](LICENSE)

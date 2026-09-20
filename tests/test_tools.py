@@ -65,9 +65,7 @@ class TestListBuckets:
 class TestListObjects:
     def test_shape(self, client):
         client.list_objects_v2.return_value = {
-            "Contents": [
-                {"Key": "dir/a.txt", "Size": 3, "LastModified": NOW, "ETag": '"abc"'}
-            ],
+            "Contents": [{"Key": "dir/a.txt", "Size": 3, "LastModified": NOW, "ETag": '"abc"'}],
             "IsTruncated": True,
         }
         result = do_list_objects(client, "bucket", prefix="dir/", max_keys=10)
@@ -219,9 +217,7 @@ class TestErrorWrapping:
     def test_boto_core_error_wrapped(self, client):
         from botocore.exceptions import EndpointConnectionError
 
-        client.list_objects_v2.side_effect = EndpointConnectionError(
-            endpoint_url="http://x"
-        )
+        client.list_objects_v2.side_effect = EndpointConnectionError(endpoint_url="http://x")
         with pytest.raises(RuntimeError):
             do_list_objects(client, "bucket")
 

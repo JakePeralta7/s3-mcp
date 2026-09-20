@@ -37,9 +37,7 @@ class TestCreateClient:
 
     def test_endpoint_and_region_passthrough(self, monkeypatch):
         fake = patch_boto3(monkeypatch)
-        create_client(
-            make_settings(endpoint_url="http://localhost:9000", region="eu-west-1")
-        )
+        create_client(make_settings(endpoint_url="http://localhost:9000", region="eu-west-1"))
         kwargs = fake.call_args.kwargs
         assert kwargs["endpoint_url"] == "http://localhost:9000"
         assert kwargs["config"].region_name == "eu-west-1"

@@ -1,4 +1,4 @@
-﻿"""s3-mcp: a generic S3-protocol MCP server over stdio.
+"""s3-mcp: a generic S3-protocol MCP server over stdio.
 
 Works against any S3-compatible endpoint (RustFS, MinIO, R2, B2, AWS).
 Configuration comes exclusively from environment variables; a single boto3
@@ -296,9 +296,7 @@ def do_stat_object(client: Any, bucket: str, key: str) -> dict[str, Any]:
         "key": key,
         "size": resp.get("ContentLength", 0),
         "etag": resp.get("ETag"),
-        "last_modified": (
-            resp["LastModified"].isoformat() if resp.get("LastModified") else None
-        ),
+        "last_modified": (resp["LastModified"].isoformat() if resp.get("LastModified") else None),
     }
     if resp.get("ContentType"):
         info["content_type"] = resp["ContentType"]
@@ -475,9 +473,7 @@ def _register_copy_object():
         return
 
     @mcp.tool()
-    def copy_object(
-        src_bucket: str, src_key: str, dst_bucket: str, dst_key: str
-    ) -> dict[str, Any]:
+    def copy_object(src_bucket: str, src_key: str, dst_bucket: str, dst_key: str) -> dict[str, Any]:
         """Copy an object within or across buckets on the same endpoint."""
         return do_copy_object(get_client(), src_bucket, src_key, dst_bucket, dst_key)
 
@@ -555,4 +551,3 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
-

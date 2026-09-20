@@ -8,7 +8,7 @@ license = { text = "MIT" }
 dependencies = [
     "mcp>=2,<3",
     "boto3>=1.43.96",
-    "structlog>=24.1",
+    "structlog>=26.1.0",
 ]
 
 [project.scripts]
@@ -19,7 +19,7 @@ dev = [
     "pytest>=9.1.1",
     "ruff>=0.6",
     "pyright>=1.1.414",
-    "structlog>=24.1",
+    "structlog>=26.1.0",
 ]
 
 [tool.ruff]

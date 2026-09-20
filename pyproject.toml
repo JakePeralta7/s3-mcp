@@ -18,7 +18,7 @@ s3-mcp = "s3_mcp.server:main"
 dev = [
     "pytest>=8",
     "ruff>=0.6",
-    "pyright>=1.1",
+    "pyright>=1.1.414",
     "structlog>=24.1",
 ]
 

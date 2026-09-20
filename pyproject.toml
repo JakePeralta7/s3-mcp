@@ -16,7 +16,7 @@ s3-mcp = "s3_mcp.server:main"
 
 [dependency-groups]
 dev = [
-    "pytest>=8",
+    "pytest>=9.1.1",
     "ruff>=0.6",
     "pyright>=1.1",
     "structlog>=24.1",

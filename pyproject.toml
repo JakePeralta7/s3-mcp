@@ -8,13 +8,34 @@ license = { text = "MIT" }
 dependencies = [
     "mcp>=2,<3",
     "boto3>=1.34",
+    "structlog>=24.1",
 ]
 
 [project.scripts]
 s3-mcp = "s3_mcp.server:main"
 
 [dependency-groups]
-dev = ["pytest>=8"]
+dev = [
+    "pytest>=8",
+    "ruff>=0.6",
+    "pyright>=1.1",
+    "structlog>=24.1",
+]
+
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "W"]
+
+[tool.ruff.format]
+quote-style = "double"
+
+[tool.pyright]
+venvPath = ".venv"
+venv = ".venv"
+typeCheckingMode = "basic"
 
 [build-system]
 requires = ["hatchling"]

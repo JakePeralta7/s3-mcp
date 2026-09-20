@@ -1,4 +1,4 @@
-"""s3-mcp: a generic S3-protocol MCP server over stdio.
+﻿"""s3-mcp: a generic S3-protocol MCP server over stdio.
 
 Works against any S3-compatible endpoint (RustFS, MinIO, R2, B2, AWS).
 Configuration comes exclusively from environment variables; a single boto3
@@ -8,16 +8,22 @@ client is created at startup.
 from __future__ import annotations
 
 import base64 as b64
+import logging
 import os
+import sys
+import uuid
 from collections.abc import Callable, Mapping
+from contextvars import ContextVar
 from dataclasses import dataclass
 from functools import wraps
 from typing import Any
 
 import boto3
+import structlog
 from botocore.config import Config as BotoConfig
 from botocore.exceptions import BotoCoreError, ClientError
 from mcp.server import MCPServer
+from mcp.types import ToolAnnotations
 
 _TRUE = {"1", "true", "yes", "on"}
 _FALSE = {"0", "false", "no", "off"}
@@ -25,7 +31,26 @@ _FALSE = {"0", "false", "no", "off"}
 # SigV4 presigned URLs cap at 7 days.
 _MAX_PRESIGN_S = 604800
 
-READ_ONLY = {"readOnlyHint": True}
+READ_ONLY = ToolAnnotations(read_only_hint=True)
+
+# Correlation ID for request tracing
+correlation_id: ContextVar[str | None] = ContextVar("correlation_id", default=None)
+
+# Global read-only mode flag (set in main() after loading settings)
+READ_ONLY_MODE = False
+
+# Structured logger (configured in main())
+logger: structlog.stdlib.BoundLogger = structlog.get_logger(__name__)
+
+
+def _add_correlation_id(
+    _: Any, __: str, event_dict: structlog.types.EventDict
+) -> structlog.types.EventDict:
+    """Add correlation_id from ContextVar to log event."""
+    cid = correlation_id.get()
+    if cid:
+        event_dict["correlation_id"] = cid
+    return event_dict
 
 
 @dataclass(frozen=True)
@@ -37,6 +62,7 @@ class Settings:
     path_style: bool
     tls_insecure: bool
     ca_bundle: str | None
+    read_only: bool = False
 
 
 def env_bool(name: str, env: Mapping[str, str], default: bool) -> bool:
@@ -70,6 +96,7 @@ def load_settings(env: Mapping[str, str] | None = None) -> Settings:
         path_style=env_bool("S3_PATH_STYLE", env, True),
         tls_insecure=env_bool("S3_TLS_INSECURE", env, False),
         ca_bundle=ca_bundle,
+        read_only=env_bool("S3_READ_ONLY", env, False),
     )
 
 
@@ -113,13 +140,77 @@ def get_client() -> Any:
     return _client
 
 
+def new_correlation_id() -> str:
+    """Generate a new correlation ID for request tracing."""
+    return uuid.uuid4().hex[:12]
+
+
+def set_correlation_id(cid: str | None = None) -> str:
+    """Set and return a correlation ID (generates new if not provided)."""
+    cid = cid or new_correlation_id()
+    correlation_id.set(cid)
+    return cid
+
+
+def get_correlation_id() -> str | None:
+    """Get the current correlation ID."""
+    return correlation_id.get()
+
+
+def _safe_args(fn: Callable[..., Any], args: tuple, kwargs: dict) -> dict:
+    """Return a safe representation of args for logging (redact sensitive data by param name)."""
+    import inspect
+
+    sig = inspect.signature(fn)
+    param_names = list(sig.parameters.keys())
+    sensitive_params = {
+        "secret_access_key",
+        "access_key_id",
+        "secret_key",
+        "password",
+        "token",
+        "secret",
+    }
+
+    safe = {}
+    # Positional args mapped to parameter names (skip 'client' and 'self')
+    for i, arg in enumerate(args):
+        if i < len(param_names):
+            param_name = param_names[i]
+        else:
+            param_name = f"arg_{i}"
+        if param_name in sensitive_params:
+            safe[param_name] = "[REDACTED]"
+        else:
+            safe[param_name] = str(arg)[:200]
+    # Keyword args
+    for k, v in kwargs.items():
+        if k in sensitive_params:
+            safe[k] = "[REDACTED]"
+        else:
+            safe[k] = str(v)[:200]
+    return safe
+
+
 def s3_errors(fn: Callable[..., Any]) -> Callable[..., Any]:
     """Convert boto3/network/decoding errors into RuntimeError (MCP isError)."""
 
     @wraps(fn)
     def wrapper(*args: Any, **kwargs: Any) -> Any:
+        _ = set_correlation_id()
+        logger.debug(
+            "tool_call_start",
+            tool=fn.__name__,
+            args=_safe_args(fn, args, kwargs),
+        )
         try:
-            return fn(*args, **kwargs)
+            result = fn(*args, **kwargs)
+            logger.debug(
+                "tool_call_end",
+                tool=fn.__name__,
+                success=True,
+            )
+            return result
         except (ClientError, BotoCoreError, OSError, ValueError) as exc:
             message = str(exc).strip() or exc.__class__.__name__
             if isinstance(exc, ClientError):
@@ -127,6 +218,11 @@ def s3_errors(fn: Callable[..., Any]) -> Callable[..., Any]:
                 code = error.get("Code", "")
                 text = error.get("Message", "")
                 message = f"{code}: {text}".strip(": ") or message
+            logger.error(
+                "tool_call_error",
+                tool=fn.__name__,
+                error=message,
+            )
             raise RuntimeError(message) from exc
 
     return wrapper
@@ -315,47 +411,143 @@ def presign_get(bucket: str, key: str, expires_s: int = 3600) -> str:
     return do_presign_get(get_client(), bucket, key, expires_s)
 
 
-@mcp.tool()
-def presign_put(bucket: str, key: str, expires_s: int = 3600) -> str:
-    """Generate a pre-signed PUT URL valid for expires_s seconds (max 604800)."""
-    return do_presign_put(get_client(), bucket, key, expires_s)
+def _register_presign_put():
+    if env_bool("S3_READ_ONLY", os.environ, False):
+        logger.info(
+            "skipping_write_tool",
+            tool="presign_put",
+            reason="read_only_mode",
+        )
+        return
+
+    @mcp.tool()
+    def presign_put(bucket: str, key: str, expires_s: int = 3600) -> str:
+        """Generate a pre-signed PUT URL valid for expires_s seconds (max 604800)."""
+        return do_presign_put(get_client(), bucket, key, expires_s)
 
 
-@mcp.tool()
-def put_object(bucket: str, key: str, body: str, base64: bool = False) -> dict[str, Any]:
-    """Write an object. Set base64=true when body is base64-encoded binary."""
-    return do_put_object(get_client(), bucket, key, body, base64)
+_register_presign_put()
 
 
-@mcp.tool()
-def delete_object(bucket: str, key: str) -> dict[str, Any]:
-    """Delete an object from a bucket."""
-    return do_delete_object(get_client(), bucket, key)
+def _register_put_object():
+    if env_bool("S3_READ_ONLY", os.environ, False):
+        logger.info(
+            "skipping_write_tool",
+            tool="put_object",
+            reason="read_only_mode",
+        )
+        return
+
+    @mcp.tool()
+    def put_object(bucket: str, key: str, body: str, base64: bool = False) -> dict[str, Any]:
+        """Write an object. Set base64=true when body is base64-encoded binary."""
+        return do_put_object(get_client(), bucket, key, body, base64)
 
 
-@mcp.tool()
-def copy_object(
-    src_bucket: str, src_key: str, dst_bucket: str, dst_key: str
-) -> dict[str, Any]:
-    """Copy an object within or across buckets on the same endpoint."""
-    return do_copy_object(get_client(), src_bucket, src_key, dst_bucket, dst_key)
+_register_put_object()
 
 
-@mcp.tool()
-def create_bucket(bucket: str) -> dict[str, Any]:
-    """Create a bucket in the configured region."""
-    return do_create_bucket(get_client(), bucket, _region)
+def _register_delete_object():
+    if env_bool("S3_READ_ONLY", os.environ, False):
+        logger.info(
+            "skipping_write_tool",
+            tool="delete_object",
+            reason="read_only_mode",
+        )
+        return
+
+    @mcp.tool()
+    def delete_object(bucket: str, key: str) -> dict[str, Any]:
+        """Delete an object from a bucket."""
+        return do_delete_object(get_client(), bucket, key)
 
 
-@mcp.tool()
-def delete_bucket(bucket: str) -> dict[str, Any]:
-    """Delete a bucket (must be empty)."""
-    return do_delete_bucket(get_client(), bucket)
+_register_delete_object()
+
+
+def _register_copy_object():
+    if env_bool("S3_READ_ONLY", os.environ, False):
+        logger.info(
+            "skipping_write_tool",
+            tool="copy_object",
+            reason="read_only_mode",
+        )
+        return
+
+    @mcp.tool()
+    def copy_object(
+        src_bucket: str, src_key: str, dst_bucket: str, dst_key: str
+    ) -> dict[str, Any]:
+        """Copy an object within or across buckets on the same endpoint."""
+        return do_copy_object(get_client(), src_bucket, src_key, dst_bucket, dst_key)
+
+
+_register_copy_object()
+
+
+def _register_create_bucket():
+    if env_bool("S3_READ_ONLY", os.environ, False):
+        logger.info(
+            "skipping_write_tool",
+            tool="create_bucket",
+            reason="read_only_mode",
+        )
+        return
+
+    @mcp.tool()
+    def create_bucket(bucket: str) -> dict[str, Any]:
+        """Create a bucket in the configured region."""
+        return do_create_bucket(get_client(), bucket, _region)
+
+
+_register_create_bucket()
+
+
+def _register_delete_bucket():
+    if env_bool("S3_READ_ONLY", os.environ, False):
+        logger.info(
+            "skipping_write_tool",
+            tool="delete_bucket",
+            reason="read_only_mode",
+        )
+        return
+
+    @mcp.tool()
+    def delete_bucket(bucket: str) -> dict[str, Any]:
+        """Delete a bucket (must be empty)."""
+        return do_delete_bucket(get_client(), bucket)
+
+
+_register_delete_bucket()
 
 
 def main() -> None:
-    global _client, _region
+    global _client, _region, READ_ONLY_MODE
     settings = load_settings()
+    READ_ONLY_MODE = settings.read_only
+
+    # Configure structlog for JSON output to stderr (never stdout for stdio transport)
+    structlog.configure(
+        processors=[
+            structlog.contextvars.merge_contextvars,
+            _add_correlation_id,
+            structlog.processors.add_log_level,
+            structlog.processors.TimeStamper(fmt="iso", utc=True),
+            structlog.processors.JSONRenderer(),
+        ],
+        wrapper_class=structlog.stdlib.BoundLogger,
+        logger_factory=structlog.stdlib.LoggerFactory(),
+        cache_logger_on_first_use=True,
+    )
+    # Ensure stdlib logging goes to stderr
+    logging.basicConfig(
+        level=logging.INFO,
+        format="%(message)s",
+        handlers=[logging.StreamHandler(sys.stderr)],
+    )
+
+    logger.info("server_start", read_only=READ_ONLY_MODE)
+
     _client = create_client(settings)
     _region = settings.region
     mcp.run(transport="stdio")
@@ -363,3 +555,4 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
+

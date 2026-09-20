@@ -1,5 +1,5 @@
 import base64
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from unittest.mock import MagicMock
 
 import pytest
@@ -37,7 +37,7 @@ def client():
     server.set_client(None)
 
 
-NOW = datetime(2026, 8, 21, tzinfo=timezone.utc)
+NOW = datetime(2026, 8, 21, tzinfo=UTC)
 
 
 class TestListBuckets:

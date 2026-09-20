@@ -23,6 +23,7 @@ class TestLoadSettings:
             path_style=True,
             tls_insecure=False,
             ca_bundle=None,
+            read_only=False,
         )
 
     def test_full_custom(self):

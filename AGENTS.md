@@ -4,10 +4,14 @@
 
 - Install deps: `uv sync --group dev` (creates `.venv`; Python >= 3.12)
 - Tests: `uv run pytest -q` — single test: `uv run pytest tests/test_tools.py -k name`
+- Lint: `uv run ruff check .`
+- Format: `uv run ruff format .` (check only: `uv run ruff format --check .`)
+- Type check: `uv run pyright`
 - Build image: `docker build -t s3-mcp:dev .`
 - Run server: `uv run python -m s3_mcp` (fails fast with `RuntimeError` unless
   `AWS_ACCESS_KEY_ID`/`AWS_SECRET_ACCESS_KEY` are set)
-- There is no lint/typecheck config; pytest is the only automated gate.
+- Read-only mode: set `S3_READ_ONLY=true` to disable write tools (put_object,
+  delete_object, copy_object, create_bucket, delete_bucket, presign_put)
 - Committed `pyrightconfig.json` points Pyright at `.venv`: until `uv sync`
   has run, editors show false "Import could not be resolved" errors for
   boto3/mcp/pytest — install deps before trusting diagnostics.
@@ -29,6 +33,12 @@
   Never build clients at import time.
 - The stdlib module is imported as `import base64 as b64` because `put_object`
   has a parameter literally named `base64`.
+- **Correlation IDs**: Each tool call gets a 12-char hex correlation ID
+  (`uuid.uuid4().hex[:12]`) for request tracing. Included in structured logs.
+- **Read-only mode**: Controlled by `S3_READ_ONLY` env var. When enabled,
+  write tools are not registered at all (hidden from MCP clients).
+- **Structured logging**: Logs include `correlation_id`, tool name, and
+  sanitized arguments (secrets redacted). Output goes to stderr for stdio transport.
 
 ## mcp SDK v2 pitfalls (`mcp>=2,<3`)
 
@@ -46,6 +56,8 @@
   ClientError/BotoCoreError/OSError/ValueError into `RuntimeError(short
   message)` (MCP turns that into an isError result). Raise `ValueError`
   inside helpers for validation failures (presign bounds >604800s, bad base64).
+- Tool annotations use `ToolAnnotations` from `mcp.types` (e.g.,
+  `READ_ONLY = ToolAnnotations(read_only_hint=True)`).
 
 ## Testing rules
 
@@ -65,3 +77,7 @@
   and pushes `ghcr.io/<lowercased repo>:<pyproject version>` plus `:latest`.
   Releasing = bump `version` in pyproject.toml and push to main. Git tags are
   NOT used for releases and trigger nothing.
+- Docker image uses `python:3.12-slim-trixie` (Debian 13) base with uv pinned
+  by SHA256 for reproducible builds.
+- CI runs on Python 3.12 and 3.13 with lint (ruff), format (ruff), and type
+  check (pyright) gates in addition to tests.

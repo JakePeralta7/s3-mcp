@@ -1,6 +1,6 @@
 # syntax=docker/dockerfile:1
 
-FROM python:3.12-slim-trixie AS builder
+FROM python:3.14-slim-trixie AS builder
 WORKDIR /app
 
 # Install uv (pinned by SHA256 for reproducibility)
@@ -17,7 +17,7 @@ RUN --mount=type=cache,target=/root/.cache/uv \
     uv pip install --no-deps --target=/install .
 
 
-FROM python:3.12-slim-trixie
+FROM python:3.14-slim-trixie
 LABEL org.opencontainers.image.title="s3-mcp" \
       org.opencontainers.image.description="Generic S3-protocol MCP server (stdio) for any S3-compatible endpoint." \
       org.opencontainers.image.licenses="MIT" \

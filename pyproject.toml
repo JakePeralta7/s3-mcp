@@ -7,7 +7,7 @@ requires-python = ">=3.12"
 license = { text = "MIT" }
 dependencies = [
     "mcp>=2.3.0,<3",
-    "boto3>=1.43.114",
+    "boto3>=1.43.118",
     "structlog>=26.1.0",
 ]
 
